@@ -45,6 +45,8 @@ python test.py
 
 The fused images will be saved under `SAVE_DIR`.
 
+**Please note that since the research team is still conducting further research based on this code, the training code will not be made public at this time. We appreciate your understanding.**
+
 
 ## Citation
 If this code is helpful, please cite the corresponding paper.:
@@ -60,7 +62,6 @@ If this code is helpful, please cite the corresponding paper.:
   pages={2857-2872},
   doi={10.1109/TIP.2026.3671658}}
 ```
-
 
 ## Contact
 If you encounter issues or wish to report bugs, please open a GitHub Issue in this repository or contact the maintainers listed on the project page.
