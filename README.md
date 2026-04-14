@@ -1,7 +1,7 @@
 # LTOFusion
 LTOFusion: A Learning-to-Optimize Framework With Flow Matching for Unsupervised Image Fusion. This paper has been accepted by IEEE Transactions on Image Processing (TIP) in February 2026.
 
-Research Focus: Infrared-visible light image fusion and medical image fusion.
+**Research Focus: Infrared-visible image fusion and medical image fusion.**
 
 ## Dataset Layout
 
