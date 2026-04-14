@@ -1,6 +1,50 @@
 # LTOFusion
 LTOFusion: A Learning-to-Optimize Framework With Flow Matching for Unsupervised Image Fusion. This paper has been accepted by IEEE Transactions on Image Processing (TIP) in February 2026.
 
+## Dataset Layout
+
+Before running, prepare one dataset with two modality folders. For the default `MODALITY_NAME = "vi-ir"`, the expected layout is:
+
+```text
+MSRS/
+  vi/
+    0001.png
+  ir/
+    0001.png
+```
+
+For medical data, this layout is also supported:
+
+```text
+medical/
+  MRI-PET/
+    MRI/
+      01.jpg
+    PET/
+      01.jpg
+```
+
+## Run
+
+Open `test.py` and modify the marked configuration block:
+
+```python
+SOURCE_DIR = "./datasets/MSRS"
+MODALITY_NAME = "vi-ir"
+SAVE_DIR = f"./results/MSRS/{MODALITY_NAME}"
+CHECKPOINT_PATH = "./pth/best.ckpt"
+MAX_STEP = 1
+DEVICE = "cuda:0"
+```
+
+Then run:
+
+```bash
+python test.py
+```
+
+The fused images will be saved under `SAVE_DIR`.
+
 
 ## Citation
 If this code is helpful, please cite the corresponding paper.:
