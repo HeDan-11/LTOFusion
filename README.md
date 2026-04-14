@@ -1,6 +1,8 @@
 # LTOFusion
 LTOFusion: A Learning-to-Optimize Framework With Flow Matching for Unsupervised Image Fusion. This paper has been accepted by IEEE Transactions on Image Processing (TIP) in February 2026.
 
+Research Focus: Infrared-visible light image fusion and medical image fusion.
+
 ## Dataset Layout
 
 Before running, prepare one dataset with two modality folders. For the default `MODALITY_NAME = "vi-ir"`, the expected layout is:
