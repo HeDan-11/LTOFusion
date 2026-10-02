@@ -294,7 +294,7 @@ def save_fused_image(fused_y, ycbcr_a, ycbcr_b, modality_name, file_name, save_d
     output_path = Path(save_dir) / fused_name
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if save_mode == "legacy":
-        Image.fromarray(fused).save(output_path)
+        Image.fromarray(fused).save(output_path, quality=95)
     else:
         # OpenCV expects BGR; imencode + tofile also supports Unicode paths.
         fused_bgr = cv2.cvtColor(fused, cv2.COLOR_RGB2BGR)
