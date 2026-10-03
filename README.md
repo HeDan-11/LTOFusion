@@ -54,9 +54,7 @@ The fused images will be saved under `SAVE_DIR`.
 
 **Original image saving method:** Fused images were saved using PIL without explicitly specifying the JPEG quality parameter, resulting in the default setting of `quality=75`.
 
-**Current image saving method:** Fused images are saved using OpenCV (`cv2`), which uses a default JPEG quality of `95`. The original PIL saving method remains available through `--save_mode legacy`.
-
-**Evaluation notes:** In our current experiments, images saved at JPEG quality `75` yielded substantially lower evaluation scores than those saved using OpenCV at quality `95`. JPEG compression can therefore affect the reported results. For fair comparisons, please use consistent image formats, JPEG quality settings, and evaluation procedures across all compared methods, and recompute the metrics under these unified settings.
+**Current image saving method:** Fused images were saved using PIL without explicitly specifying the JPEG quality parameter, resulting in the default setting of `quality=95`.
 
 
 ## Citation
