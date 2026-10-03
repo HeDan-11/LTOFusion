@@ -1,35 +1,32 @@
-"""LTOFusion batch inference for the bundled datasets directory.
+"""LTOFusion batch inference (use the pt18 environment on Windows).
 
 Examples, from this directory:
-  python tesv2.py --dry_run
-  python tesv2.py --max_images 1
-  python tesv2.py
-  python tesv2.py --tasks vif --vif_datasets MSRS
-  python tesv2.py --tasks medical --medical_datasets MRI-PET --save_mode legacy
-  python tesv2.py --save_mode legacy95 --method_name LTOFusionv2_legacy95
-  python tesv2.py --data_root ./datasets --output_root ./results --overwrite
+  python test.py --tasks vif --vif_datasets MSRS_Seg --dry_run
+  python test.py --tasks vif --vif_datasets MSRS M3FD TNO Road --max_images 1
+  python test.py --tasks medical
+  python test.py --tasks all --max_images 1
+  python test.py --tasks medical --save_mode legacy
+  python test.py --save_mode legacy95 --method_name LTOFusion_legacy95
 
-Default layout (resolved relative to this script, not the working directory):
-  datasets/MSRS/vi-ir/vi + datasets/MSRS/vi-ir/ir
-  datasets/medical/MRI-CT/MRI + datasets/medical/MRI-CT/CT
-  datasets/medical/MRI-PET/MRI + datasets/medical/MRI-PET/PET
-VIF also accepts direct <dataset>/vi + <dataset>/ir and ir-vi pair folders.
---vif_datasets all scans the root except the medical container;
---medical_datasets all scans the medical root. Explicit dataset names are allowed.
---vif_root and --medical_root may override the locations derived from --data_root.
+Dataset options accept default, all, or explicit names. all scans every dataset
+folder and requires valid pairs. --max_images limits each dataset (0 means all).
+Existing outputs are skipped; use --overwrite or a different --method_name when
+changing weights, iteration counts, or save mode. --dry_run loads no weights and
+writes no files. The default checkpoint is resolved relative to this script.
 
-Default output: results/LTOFusionv2/<dataset>/ir-vi/<filename> for VIF,
-               results/LTOFusionv2/<dataset>/<filename> for medical.
-Existing files are skipped unless --overwrite is provided. --max_images limits
-pairs per dataset (0 means all); --dry_run loads no weights and writes no files.
-Original sizes and extensions are retained; MRI in filenames becomes fused.
+VIF inputs: VI then IR, with color from VI. Medical inputs: MRI then CT/PET/SPECT,
+with color from the second input. Default iterations: TNO/Road/M3FD=3,
+MSRS/MSRS_Seg and other VIF datasets=1, MRI-CT/MRI-PET/MRI-SPECT=5.
+--vif_steps and --medical_steps override their respective dataset defaults.
+Inputs are padded to multiples of 8 for the network and cropped before saving.
+All save modes keep the original floating-point color restoration and uint8
+truncation: cv2 (default) uses OpenCV, legacy uses the original PIL encoder.
+legacy95 uses the original PIL pipeline with JPEG quality=95; other formats
+are unchanged from legacy.
 
-Default iterations: VIF=1, medical=5. Inputs are padded to multiples of 8 and
-cropped before saving. cv2 is the default encoder; --save_mode legacy retains
-the original PIL saving. legacy95 uses the original PIL pipeline with JPEG
-quality=95; other formats are unchanged from legacy. All modes keep floating-point
-color recovery and uint8 truncation, with color from VI for VIF and from
-CT/PET/SPECT for medical.
+Outputs retain the input size and extension; MRI in filenames becomes fused.
+VIF: <output_root>/<method_name>/<dataset>/ir-vi/<filename>
+Medical: <output_root>/<method_name>/<dataset>/<filename>
 """
 
 import argparse
@@ -49,13 +46,24 @@ import torchvision.transforms.functional as ttf
 from core.model import ActionNet, PolicyNet
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CHECKPOINT = SCRIPT_DIR / "pth" / "best.ckpt"
-DEFAULT_DATA_ROOT = SCRIPT_DIR / "datasets"
-DEFAULT_OUTPUT_ROOT = SCRIPT_DIR / "results"
-DEFAULT_VIF_DATASETS = ("MSRS",)
-DEFAULT_MEDICAL_DATASETS = ("MRI-CT", "MRI-PET")
-SUPPORTED_MEDICAL_DATASETS = ("MRI-CT", "MRI-PET", "MRI-SPECT")
+DEFAULT_CHECKPOINT = Path(__file__).resolve().parent / "pth" / "best.ckpt"
+DEFAULT_VIF_ROOT = Path(r"E:\python\pytorch\Medical_image_fusion\data\VIF_dataset")
+DEFAULT_MEDICAL_ROOT = Path(r"E:\python\pytorch\Medical_image_fusion\data\test_imgs_IN_jpg")
+DEFAULT_OUTPUT_ROOT = Path(r"G:\A_Image_fusion_results\A_Image_fusion_results_50")
+DEFAULT_VIF_DATASETS = ("MSRS", "M3FD", "TNO", "Road", "MSRS_Seg")
+DEFAULT_MEDICAL_DATASETS = ("MRI-CT", "MRI-PET", "MRI-SPECT")
+DEFAULT_VIF_STEPS = {
+    "msrs": 1,
+    "msrs_seg": 1,
+    "tno": 3,
+    "road": 3,
+    "m3fd": 3,
+}
+DEFAULT_MEDICAL_STEPS = {
+    "mri-ct": 5,
+    "mri-pet": 5,
+    "mri-spect": 5,
+}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 # Preserve the released LTOFusion VI-first order; source_2/source_1 follows the
 # batch reference's convention for anonymously named source folders.
@@ -63,34 +71,34 @@ VIF_PAIR_DIRS = (
     ("vi", "ir"), ("visible", "infrared"), ("VIS", "IR"),
     ("source_2", "source_1"), ("source2", "source1"),
 )
-SAVE_MODE = "legacy95 "
+SAVE_MODE = "cv2"
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint_path", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--output_root", type=Path, default=DEFAULT_OUTPUT_ROOT)
-    parser.add_argument("--method_name", default="LTOFusionv2")
+    parser.add_argument("--method_name", default="LTOFusionv3")
     parser.add_argument("--tasks", nargs="+", choices=("all", "vif", "medical"), default=["all"])
-    parser.add_argument("--data_root", type=Path, default=DEFAULT_DATA_ROOT, help="Bundled datasets root")
-    parser.add_argument("--vif_root", type=Path, default=None, help="Override VIF root (default: data_root)")
-    parser.add_argument("--medical_root", type=Path, default=None, help="Override medical root (default: data_root/medical)")
+    parser.add_argument("--vif_root", type=Path, default=DEFAULT_VIF_ROOT)
+    parser.add_argument("--medical_root", type=Path, default=DEFAULT_MEDICAL_ROOT)
     parser.add_argument("--vif_datasets", nargs="+", default=["default"])
     parser.add_argument("--medical_datasets", nargs="+", default=["default"])
     parser.add_argument("--device", default="cuda:0", help="CUDA device, e.g. cuda:0, or cpu")
     parser.add_argument("--max_images", type=int, default=0, help="Maximum pairs per dataset; 0 means all")
-    parser.add_argument("--vif_steps", type=int, default=1, help="VIF iterations (default: 1)")
-    parser.add_argument("--medical_steps", type=int, default=5, help="Medical iterations (default: 5)")
+    parser.add_argument("--vif_steps", type=int, default=None,
+                        help="Override iterations for all selected VIF datasets (default: TNO/Road/M3FD=3, others=1)")
+    parser.add_argument("--medical_steps", type=int, default=None,
+                        help="Override iterations for all selected medical datasets (default: MRI-CT/MRI-PET/MRI-SPECT=5)")
     parser.add_argument("--save_mode", choices=("cv2", "legacy", "legacy95"), default=SAVE_MODE,
                         help="cv2: OpenCV (default); legacy: original PIL; legacy95: original PIL with JPEG quality=95")
     parser.add_argument("--overwrite", action="store_true", help="Replace existing outputs; otherwise skip them")
     parser.add_argument("--dry_run", action="store_true", help="Check pairs, sizes and paths without loading weights or writing images")
     opt = parser.parse_args(argv)
-    opt.vif_root = opt.vif_root if opt.vif_root is not None else opt.data_root
-    opt.medical_root = opt.medical_root if opt.medical_root is not None else opt.data_root / "medical"
     if opt.max_images < 0:
         parser.error("--max_images must be >= 0")
-    if opt.vif_steps < 1 or opt.medical_steps < 1:
+    if ((opt.vif_steps is not None and opt.vif_steps < 1)
+            or (opt.medical_steps is not None and opt.medical_steps < 1)):
         parser.error("--vif_steps and --medical_steps must be >= 1")
     if opt.method_name in ("", ".", "..") or any(c in opt.method_name for c in "/\\:"):
         parser.error("--method_name must be a directory name")
@@ -162,15 +170,13 @@ def build_pairs_from_dirs(first, second):
     return pairs
 
 
-def dataset_names(root, requested, defaults, task):
+def dataset_names(root, requested, defaults):
     if not root.is_dir():
         raise FileNotFoundError(root)
     if requested == ["default"]:
         return list(defaults)
     if requested == ["all"]:
-        return sorted((p.name for p in root.iterdir()
-                       if p.is_dir() and not (task == "vif" and p.name.lower() == "medical")),
-                      key=natural_key)
+        return sorted((p.name for p in root.iterdir() if p.is_dir()), key=natural_key)
     if any(name in ("all", "default") for name in requested):
         raise ValueError("Use all/default alone, or provide explicit dataset names")
     for name in requested:
@@ -181,24 +187,13 @@ def dataset_names(root, requested, defaults, task):
 
 def pair_dirs(task, folder):
     if task == "vif":
-        candidates = [folder]
-        for pair_name in ("vi-ir", "ir-vi"):
-            nested = find_child_dir(folder, pair_name)
-            if nested is not None:
-                candidates.append(nested)
-        matches = []
-        for candidate in candidates:
-            for first, second in VIF_PAIR_DIRS:
-                a, b = find_child_dir(candidate, first), find_child_dir(candidate, second)
-                if a is not None and b is not None and (a, b) not in matches:
-                    matches.append((a, b))
-        if len(matches) > 1:
-            raise ValueError("Ambiguous VI/IR folder layout in %s: %s" % (folder, matches))
-        if matches:
-            return matches[0]
-        raise ValueError("Cannot identify VI/IR folders in %s (direct, vi-ir or ir-vi)" % folder)
-    if folder.name not in SUPPORTED_MEDICAL_DATASETS:
-        raise ValueError("Supported medical datasets: %s; got %s" % (SUPPORTED_MEDICAL_DATASETS, folder.name))
+        for first, second in VIF_PAIR_DIRS:
+            a, b = find_child_dir(folder, first), find_child_dir(folder, second)
+            if a is not None and b is not None:
+                return a, b
+        raise ValueError("Cannot identify VI/IR folders in %s" % folder)
+    if folder.name not in DEFAULT_MEDICAL_DATASETS:
+        raise ValueError("Supported medical datasets: %s; got %s" % (DEFAULT_MEDICAL_DATASETS, folder.name))
     a = find_child_dir(folder, "MRI")
     b = find_child_dir(folder, folder.name.split("-", 1)[1])
     if a is None or b is None:
@@ -212,7 +207,7 @@ def collect_items(opt):
     for task in tasks:
         root = getattr(opt, task + "_root")
         defaults = DEFAULT_VIF_DATASETS if task == "vif" else DEFAULT_MEDICAL_DATASETS
-        for name in dataset_names(root, getattr(opt, task + "_datasets"), defaults, task):
+        for name in dataset_names(root, getattr(opt, task + "_datasets"), defaults):
             folder = root / name
             if not folder.is_dir():
                 raise FileNotFoundError(folder)
@@ -330,13 +325,25 @@ def fuse_item(model, item, device, steps, save_mode):
     save_fused_image(fused_y, first, second, modality, item.output.name, item.output.parent, save_mode)
 
 
+def iterations_for_item(opt, item):
+    if item.task == "medical":
+        if opt.medical_steps is not None:
+            return opt.medical_steps
+        return DEFAULT_MEDICAL_STEPS.get(item.dataset.lower(), 5)
+    if opt.vif_steps is not None:
+        return opt.vif_steps
+    return DEFAULT_VIF_STEPS.get(item.dataset.lower(), 1)
+
+
 def run_batch(opt):
-    print("Save mode: %s | iterations: vif=%d medical=%d" %
-          (opt.save_mode, opt.vif_steps, opt.medical_steps), flush=True)
+    vif_steps = opt.vif_steps if opt.vif_steps is not None else DEFAULT_VIF_STEPS
+    medical_steps = opt.medical_steps if opt.medical_steps is not None else DEFAULT_MEDICAL_STEPS
+    print("Save mode: %s | iterations: vif=%s medical=%s" %
+          (opt.save_mode, vif_steps, medical_steps), flush=True)
     items = collect_items(opt)
     if opt.dry_run:
         for item in items:
-            steps = opt.vif_steps if item.task == "vif" else opt.medical_steps
+            steps = iterations_for_item(opt, item)
             print("[DRY][steps=%d] %s + %s -> %s" % (steps, item.image1, item.image2, item.output))
         print("Checked %d pairs; no files written." % len(items))
         return
@@ -364,7 +371,7 @@ def run_batch(opt):
     stats = {}
     for index, item in enumerate(pending, 1):
         before = time.perf_counter()
-        steps = opt.vif_steps if item.task == "vif" else opt.medical_steps
+        steps = iterations_for_item(opt, item)
         print("[%d/%d] %s/%s steps=%d" %
               (index, len(pending), item.dataset, item.image1.name, steps), flush=True)
         fuse_item(model, item, device, steps, opt.save_mode)
