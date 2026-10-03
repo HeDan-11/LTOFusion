@@ -6,6 +6,7 @@ Examples, from this directory:
   python tesv2.py
   python tesv2.py --tasks vif --vif_datasets MSRS
   python tesv2.py --tasks medical --medical_datasets MRI-PET --save_mode legacy
+  python tesv2.py --save_mode legacy95 --method_name LTOFusionv2_legacy95
   python tesv2.py --data_root ./datasets --output_root ./results --overwrite
 
 Default layout (resolved relative to this script, not the working directory):
@@ -25,8 +26,10 @@ Original sizes and extensions are retained; MRI in filenames becomes fused.
 
 Default iterations: VIF=1, medical=5. Inputs are padded to multiples of 8 and
 cropped before saving. cv2 is the default encoder; --save_mode legacy retains
-the original PIL saving. Both keep floating-point color recovery and uint8
-truncation, with color from VI for VIF and from CT/PET/SPECT for medical.
+the original PIL saving. legacy95 uses the original PIL pipeline with JPEG
+quality=95; other formats are unchanged from legacy. All modes keep floating-point
+color recovery and uint8 truncation, with color from VI for VIF and from
+CT/PET/SPECT for medical.
 """
 
 import argparse
@@ -60,7 +63,7 @@ VIF_PAIR_DIRS = (
     ("vi", "ir"), ("visible", "infrared"), ("VIS", "IR"),
     ("source_2", "source_1"), ("source2", "source1"),
 )
-SAVE_MODE = "cv2"
+SAVE_MODE = "legacy95 "
 
 
 def parse_args(argv=None):
@@ -78,8 +81,8 @@ def parse_args(argv=None):
     parser.add_argument("--max_images", type=int, default=0, help="Maximum pairs per dataset; 0 means all")
     parser.add_argument("--vif_steps", type=int, default=1, help="VIF iterations (default: 1)")
     parser.add_argument("--medical_steps", type=int, default=5, help="Medical iterations (default: 5)")
-    parser.add_argument("--save_mode", choices=("cv2", "legacy"), default=SAVE_MODE,
-                        help="cv2: OpenCV encoding (default); legacy: original PIL encoding")
+    parser.add_argument("--save_mode", choices=("cv2", "legacy", "legacy95"), default=SAVE_MODE,
+                        help="cv2: OpenCV (default); legacy: original PIL; legacy95: original PIL with JPEG quality=95")
     parser.add_argument("--overwrite", action="store_true", help="Replace existing outputs; otherwise skip them")
     parser.add_argument("--dry_run", action="store_true", help="Check pairs, sizes and paths without loading weights or writing images")
     opt = parser.parse_args(argv)
@@ -281,7 +284,7 @@ def iterative_fusion(model, img_a, img_b, max_step):
 
 
 def save_fused_image(fused_y, ycbcr_a, ycbcr_b, modality_name, file_name, save_dir, save_mode=SAVE_MODE):
-    if save_mode not in ("cv2", "legacy"):
+    if save_mode not in ("cv2", "legacy", "legacy95"):
         raise ValueError(f"Unknown save mode: {save_mode}")
     if modality_name in ["vi-ir", "PET-MRI", "SPECT-MRI"]:
         fused_ycbcr = torch.cat([fused_y, ycbcr_a[:, 1:]], dim=1)
@@ -294,7 +297,10 @@ def save_fused_image(fused_y, ycbcr_a, ycbcr_b, modality_name, file_name, save_d
     output_path = Path(save_dir) / fused_name
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if save_mode == "legacy":
-        Image.fromarray(fused).save(output_path, quality=95)
+        Image.fromarray(fused).save(output_path)
+    elif save_mode == "legacy95":
+        save_options = {"quality": 95} if output_path.suffix.lower() in (".jpg", ".jpeg") else {}
+        Image.fromarray(fused).save(output_path, **save_options)
     else:
         # OpenCV expects BGR; imencode + tofile also supports Unicode paths.
         fused_bgr = cv2.cvtColor(fused, cv2.COLOR_RGB2BGR)
